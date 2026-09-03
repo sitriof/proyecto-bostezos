@@ -238,17 +238,24 @@
         const totalCountEl = document.getElementById('total-count');
         const dateFilter = document.getElementById('date-filter');
         const clearFilterBtn = document.getElementById('clear-filter-btn');
-
-        // Instanciar el efecto de sonido (apunta a la carpeta /sound)
         const yawnSound = new Audio('sound/claro_que_yes.mp3');
 
-        // Cargar registros de localStorage
-        let yawnRecords = JSON.parse(localStorage.getItem('bostezos_db')) || [];
+        let yawnRecords = []; // Ahora iniciamos vacío, los datos vendrán del servidor
 
-        // Función para renderizar la interfaz
+        // --- NUEVO: Función para pedir los datos al servidor ---
+        async function fetchYawns() {
+            try {
+                const response = await fetch('/api/bostezos');
+                yawnRecords = await response.json();
+                renderHistory();
+            } catch (error) {
+                console.error('Error cargando bostezos:', error);
+            }
+        }
+
+        // Función para renderizar la interfaz (Se mantiene igual que antes)
         function renderHistory() {
             historyContainer.innerHTML = '';
-            
             const filterValue = dateFilter.value;
             let recordsToRender = yawnRecords;
 
@@ -259,7 +266,6 @@
                     const month = String(d.getMonth() + 1).padStart(2, '0');
                     const day = String(d.getDate()).padStart(2, '0');
                     const recordIsoDate = `${year}-${month}-${day}`;
-                    
                     return recordIsoDate === filterValue;
                 });
             }
@@ -267,19 +273,14 @@
             totalCountEl.textContent = yawnRecords.length;
 
             if (recordsToRender.length === 0) {
-                const message = filterValue 
-                    ? 'No hay bostezos registrados en esta fecha.' 
-                    : 'Aún no hay bostezos registrados. ¡Sé el primero!';
+                const message = filterValue ? 'No hay bostezos en esta fecha.' : 'Aún no hay bostezos registrados. ¡Sé el primero!';
                 historyContainer.innerHTML = `<p class="empty-state">${message}</p>`;
                 return;
             }
 
             const groupedData = {};
-            
             recordsToRender.forEach(record => {
-                if (!groupedData[record.date]) {
-                    groupedData[record.date] = [];
-                }
+                if (!groupedData[record.date]) groupedData[record.date] = [];
                 groupedData[record.date].push(record.time);
             });
 
@@ -287,31 +288,20 @@
 
             for (const date of sortedDates) {
                 const times = groupedData[date];
-                
                 const dayGroup = document.createElement('div');
                 dayGroup.className = 'day-group';
-                
                 dayGroup.innerHTML = `
-                    <h3 class="day-title">
-                        <span>📅 ${date}</span>
-                        <span style="color: #94a3b8; font-size: 0.9rem;">${times.length} bostezos</span>
-                    </h3>
-                    <div class="times-container">
-                        ${times.map(time => `<span class="time-badge">🕒 ${time}</span>`).join('')}
-                    </div>
+                    <h3 class="day-title"><span>📅 ${date}</span><span style="color: #94a3b8; font-size: 0.9rem;">${times.length} bostezos</span></h3>
+                    <div class="times-container">${times.map(time => `<span class="time-badge">🕒 ${time}</span>`).join('')}</div>
                 `;
-                
                 historyContainer.appendChild(dayGroup);
             }
         }
 
-        // Evento: Registrar nuevo bostezo y reproducir sonido
-        yawnBtn.addEventListener('click', () => {
-            // Reproducir el sonido
-            yawnSound.currentTime = 0; // Reinicia el audio por si hacen clics rápidos
-            yawnSound.play().catch(error => {
-                console.log('El navegador bloqueó la reproducción automática o no encontró el archivo:', error);
-            });
+        // --- NUEVO: Evento al registrar bostezo (Envía datos al servidor) ---
+        yawnBtn.addEventListener('click', async () => {
+            yawnSound.currentTime = 0;
+            yawnSound.play().catch(e => console.log(e));
 
             const now = new Date();
             const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -323,31 +313,34 @@
                 timestamp: now.getTime()
             };
 
-            yawnRecords.unshift(newRecord);
-            localStorage.setItem('bostezos_db', JSON.stringify(yawnRecords));
+            // Enviar al servidor
+            await fetch('/api/bostezos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newRecord)
+            });
             
             dateFilter.value = ''; 
-            renderHistory();
+            fetchYawns(); // Recargar la lista desde la base de datos
         });
 
-        // Evento: Reiniciar contador
-        resetBtn.addEventListener('click', () => {
-            if (confirm('¿Estás seguro de que quieres borrar todo tu historial de bostezos?')) {
-                yawnRecords = [];
-                localStorage.removeItem('bostezos_db');
-                renderHistory();
+        // --- NUEVO: Reiniciar contador en el servidor ---
+        resetBtn.addEventListener('click', async () => {
+            if (confirm('ATENCIÓN: Esto borrará los bostezos de TODOS los usuarios del mundo. ¿Estás seguro?')) {
+                await fetch('/api/bostezos', { method: 'DELETE' });
+                fetchYawns();
             }
         });
 
         dateFilter.addEventListener('change', renderHistory);
-
         clearFilterBtn.addEventListener('click', () => {
             dateFilter.value = '';
             renderHistory();
         });
 
-        // Renderizado inicial
-        renderHistory();
+        // Cargar datos al entrar a la página
+        fetchYawns();
+
     </script>
 </body>
 </html>
